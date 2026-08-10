@@ -245,6 +245,7 @@ Requires Python 3.10+.
 pip install -r requirements.txt
 python run.py            # GUI
 python run.py sync       # headless sync, for cron or Task Scheduler
+python tests/uat.py      # 66 acceptance checks — no network, touches nothing real
 ```
 
 It drives a real browser through Playwright, using system Edge or Chrome when

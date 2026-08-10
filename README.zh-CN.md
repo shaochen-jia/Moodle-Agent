@@ -230,6 +230,7 @@ flowchart LR
 pip install -r requirements.txt
 python run.py            # 图形界面
 python run.py sync       # 无界面同步，可挂 cron 或计划任务
+python tests/uat.py      # 66 项验收检查——不联网，不碰任何真实数据
 ```
 
 它通过 Playwright 驱动一个真实浏览器，优先用系统自带的 Edge 或 Chrome；

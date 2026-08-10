@@ -81,6 +81,28 @@ later sync, because a transcript missing its summary is retried.
 **Pinned Gemini model names 404 or 429 on a free key.** The `-latest` aliases
 are the ones the free tier serves.
 
+## Tests
+
+```
+python tests/uat.py
+```
+
+Sixty-six checks, no network, and it touches nothing real - `LOCALAPPDATA` is
+redirected to a temp folder at import time, so the lock file, settings and sync
+history all land there rather than in the copy you actually use. Exits non-zero
+on failure, so a hook or CI step can gate on it.
+
+**Run it after any change to downloads, notes, captions or AI.** It has caught
+several regressions a type checker could not: the YouTube cap that reset per
+unit, the double-encoded em dash, and the `needs-signin` state that nothing
+emitted. Each check names the failure it stands guard over - that commentary is
+the valuable part, so keep it when editing.
+
+Two of the sections read the source as bytes or text rather than calling it,
+because the bug they pin is invisible to an import: `J` scans for
+double-encoded punctuation, and `K` checks the unpack sweep is still wired into
+`cli()`.
+
 ## Design decisions worth keeping
 
 - Word first, plain text second, Markdown off. Most readers have never opened
