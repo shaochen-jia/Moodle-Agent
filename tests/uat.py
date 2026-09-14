@@ -440,6 +440,184 @@ check("L11 the repair runs before anything is fetched",
       "repair_names(cfg.root_dir, manifest)"
       in (REPO / "moodle_dl" / "main.py").read_text(encoding="utf-8"))
 
+print("\n=== M. Grades ===")
+# Every fixture here is invented. The real pages this was built against carry
+# a name and a student id, and the repository is public.
+from moodle_dl import assessplan, grades as gr  # noqa: E402
+from moodle_dl.gradebook import parse as parse_grades  # noqa: E402
+
+
+def _row(rid, kind, name, grade, lo, hi, cats):
+    cls = " ".join(cats)
+    return f"""
+    <tr class="{cls}">
+      <th class="level3 item column-itemname cell c0" id="row_{rid}_9">
+        <div class="item"><div><img class="icon itemicon" alt="{kind}"/></div>
+        <div><div class="rowtitle">
+        <a class="gradeitemheader" href="https://x/mod/{kind.lower()}/view.php?id={rid}"
+           title="{kind} activity {name}">{name}</a></div></div></div></th>
+      <td class="level3 item itemcenter column-grade cell c1">
+        <div><div>{grade}</div><div class="action-menu">Actions Grade analysis</div></div></td>
+      <td class="level3 item itemcenter column-range cell c2">{lo}–{hi}</td>
+      <td class="level3 item feedbacktext column-feedback cell c3"></td>
+    </tr>"""
+
+
+REPORT = f"""<table class="user-grade">
+  <thead><tr><th>Grade item</th><th>Grade</th><th>Range</th><th>Feedback</th></tr></thead>
+  <tbody>
+    <tr><th class="level1 category column-itemname" id="cat_1_9">UNIT1 Something</th></tr>
+    <tr class="cat_1"><th class="level2 category column-itemname" id="cat_2_9">Quizzes</th></tr>
+    {_row(101, "Quiz", "Quiz 1", "-", 0, 100, ["cat_1", "cat_2"])}
+    {_row(102, "Quiz", "Quiz 2", "90.00", 0, 100, ["cat_1", "cat_2"])}
+    {_row(201, "Assignment", "Individual Assignment 1", "21.00", 0, 25, ["cat_1"])}
+    {_row(202, "Assignment", "Report and Testing", "-", 0, 100, ["cat_1"])}
+  </tbody></table>"""
+
+rows = parse_grades(REPORT)
+by_name = {r.name: r for r in rows}
+check("M1 every graded line is read", len(rows) == 4, str(len(rows)))
+check("M2 the range gives the denominator",
+      by_name["Individual Assignment 1"].out_of == 25,
+      str(by_name["Individual Assignment 1"].out_of))
+check("M3 the actions menu is not mistaken for a mark",
+      by_name["Quiz 2"].score == 90.0 and by_name["Quiz 1"].score is None,
+      str(by_name["Quiz 2"].score))
+check("M4 a grouped item knows its category",
+      by_name["Quiz 2"].category == "Quizzes"
+      and by_name["Individual Assignment 1"].category == "",
+      by_name["Quiz 2"].category)
+check("M5 'Testing' in a name does not make it a test",
+      by_name["Report and Testing"].kind == "assignment",
+      by_name["Report and Testing"].kind)
+
+# The scheme, as a unit overview states it. Written as .docx because the suite
+# must not depend on a PDF writer; assessplan reads both the same way.
+from docx import Document as _Docx  # noqa: E402
+
+gdir = TMP / "units" / "UNIT1"
+(gdir / "Week 01").mkdir(parents=True)
+_doc = _Docx()
+for _line in ["Assessment summary",
+              "Individual in-class quiz – 10% (2.5% * 4): Week 3, 6, 8, 10",
+              "Individual Assignment 1 – 25%",
+              "Group Assignment 2 – 25%",
+              "Final Report – 40%",
+              "Late penalty: 5% per day",
+              "Pass (50%)"]:
+    _doc.add_paragraph(_line)
+_doc.save(str(gdir / "Week 01" / "UNIT1 Unit Overview.docx"))
+
+plan = assessplan.read(gdir)
+weights = {e.name: e.weight for e in plan}
+check("M6 a stated scheme is read out of the unit's own document",
+      abs(sum(weights.values()) - 100) < 0.01, str(sum(weights.values())))
+check("M7 a block states how many parts there will be",
+      any(e.count == 4 and e.each == 2.5 for e in plan),
+      str([(e.name, e.count) for e in plan]))
+check("M8 a late-penalty line is not read as a weight",
+      not any("penalt" in n.lower() or "late" in n.lower() for n in weights))
+check("M9 a rubric band is not read as a weight",
+      not any(n.strip().lower().startswith("pass") for n in weights),
+      ", ".join(weights) or "clean")
+
+book = gr.Book(TMP / "grades.json")
+unit = book.unit("UNIT1")
+news = gr.merge(unit, rows, plan)
+items = {i.name: i for i in unit.items}
+check("M10 the quiz block binds to the real quizzes and is padded to four",
+      any(i.grouped and len(i.parts) == 4 for i in unit.items),
+      str([(i.name, len(i.parts)) for i in unit.items]))
+check("M11 a shared digit alone never matches two assessments",
+      items["Individual Assignment 1"].weight == 25,
+      str(items["Individual Assignment 1"].weight))
+check("M12 an assessment Moodle has not created yet is still counted",
+      any(i.source == "plan" and i.weight == 40 for i in unit.items),
+      str([(i.name, i.source) for i in unit.items]))
+check("M13 the weights add to 100", unit.weights_complete(),
+      f"{unit.weight_total():g}%")
+check("M14 a mark out of 25 is not read as a percentage",
+      abs(items["Individual Assignment 1"].earned() - 21.0) < 0.01,
+      str(items["Individual Assignment 1"].earned()))
+check("M15 new marks are reported for the note and the notification",
+      len(news) == 2, str(news))
+
+# 90% on one quiz of a four-quiz 10% block is 2.25 points, not 9 and not 10.
+_block = next(i for i in unit.items if i.grouped)
+check("M16 an unfinished block only counts the parts that came back",
+      abs(_block.earned() - 2.25) < 0.01 and abs(_block.assessed() - 2.5) < 0.01,
+      f"earned {_block.earned()} of {_block.assessed()}")
+
+unit.target = "D"
+check("M17 the target says what is still needed",
+      unit.needed() is not None and 0 < unit.needed() < 100,
+      f"{unit.needed()}% over the remaining {unit.remaining():g}%")
+
+# best 8 of 10: each counted quiz is worth a tenth more than an even split.
+_best = gr.Item(id="b", name="Weekly quizzes", weight=10.0, planned=10,
+                count_best=8,
+                parts=[gr.Part(name=str(n), score=100.0, out_of=100.0)
+                       for n in range(10)])
+check("M18 only the best N of a capped block are counted",
+      abs(_best.earned() - 10.0) < 0.01 and abs(_best.assessed() - 10.0) < 0.01,
+      f"earned {_best.earned()}")
+_half = gr.Item(id="b2", name="Weekly quizzes", weight=10.0, planned=10,
+                count_best=8,
+                parts=[gr.Part(name="1", score=100.0, out_of=100.0),
+                       gr.Part(name="2", score=50.0, out_of=100.0)])
+check("M19 a capped block mid-semester counts only what is marked",
+      abs(_half.assessed() - 2.5) < 0.01 and abs(_half.earned() - 1.875) < 0.01,
+      f"earned {_half.earned()} of {_half.assessed()}")
+
+# The whole point of the page: an edit has to survive the next sync.
+items["Individual Assignment 1"].weight = 30.0
+items["Individual Assignment 1"].lock("weight")
+items["Individual Assignment 1"].score = 24.0
+items["Individual Assignment 1"].lock("score")
+book.save()
+again = gr.Book(TMP / "grades.json")
+gr.merge(again.unit("UNIT1"), rows, plan)
+kept = {i.name: i for i in again.unit("UNIT1").items}["Individual Assignment 1"]
+check("M20 an edited weight is never overwritten by a later sync",
+      kept.weight == 30.0, str(kept.weight))
+check("M21 an edited mark is never overwritten either",
+      kept.score == 24.0, str(kept.score))
+check("M22 the sheet survives a round trip through disk",
+      len(again.unit("UNIT1").items) == len(unit.items),
+      f"{len(again.unit('UNIT1').items)} vs {len(unit.items)}")
+
+# M11 above turned out not to guard this: in that fixture the quizzes are
+# already bound into a block, so no bare "Quiz 1" ever reaches the matcher and
+# the original bug cannot reappear. The rule itself has to be pinned directly.
+check("M24 a shared number alone is not a match",
+      gr._similar("Quiz 1", "Individual Assignment 1") == 0.0,
+      str(gr._similar("Quiz 1", "Individual Assignment 1")))
+check("M25 a different number disqualifies an otherwise perfect match",
+      gr._similar("Individual Assignment 1", "Individual Assignment 3") == 0.0)
+check("M26 a plural still matches its singular",
+      gr._similar("Quizzes", "Individual in-class quiz") > 0.45,
+      str(gr._similar("Quizzes", "Individual in-class quiz")))
+
+# The same thing end to end: a unit whose quizzes sit loose, with a plan that
+# talks about assignments. Nothing here should collect an assignment's weight.
+LOOSE = f"""<table class="user-grade">
+  <tbody>
+    <tr><th class="level1 category column-itemname" id="cat_1_9">UNIT2</th></tr>
+    {_row(301, "Quiz", "Quiz 1", "-", 0, 100, ["cat_1"])}
+    {_row(302, "Quiz", "Quiz 2", "-", 0, 100, ["cat_1"])}
+  </tbody></table>"""
+loose_plan = [e for e in plan if not e.count]
+loose = gr.Unit(code="UNIT2")
+gr.merge(loose, parse_grades(LOOSE), loose_plan)
+check("M27 a loose quiz never inherits an assignment's weight",
+      all(i.weight is None for i in loose.items if i.name.startswith("Quiz")),
+      str([(i.name, i.weight) for i in loose.items]))
+
+_broken = TMP / "broken_grades.json"
+_broken.write_text("{ not json", encoding="utf-8")
+check("M23 a damaged sheet does not take the app down",
+      gr.Book(_broken).units == {})
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n==== {len(PASS)} passed, {len(FAIL)} failed ====")
 if FAIL:

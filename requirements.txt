@@ -4,3 +4,4 @@ PyYAML>=6.0
 customtkinter>=5.2
 python-docx>=1.1
 youtube-transcript-api>=1.0
+PyMuPDF>=1.24
