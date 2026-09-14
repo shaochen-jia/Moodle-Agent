@@ -87,7 +87,7 @@ are the ones the free tier serves.
 python tests/uat.py
 ```
 
-Sixty-six checks, no network, and it touches nothing real - `LOCALAPPDATA` is
+Seventy-seven checks, no network, and it touches nothing real - `LOCALAPPDATA` is
 redirected to a temp folder at import time, so the lock file, settings and sync
 history all land there rather than in the copy you actually use. Exits non-zero
 on failure, so a hook or CI step can gate on it.
@@ -97,6 +97,8 @@ several regressions a type checker could not: the YouTube cap that reset per
 unit, the double-encoded em dash, and the `needs-signin` state that nothing
 emitted. Each check names the failure it stands guard over - that commentary is
 the valuable part, so keep it when editing.
+
+Section `L` covers filenames that arrive mis-decoded. Moodle sends the name in a Content-Disposition header, and HTTP header values are Latin-1 by specification, so a UTF-8 en dash came back as three characters - two of them C1 controls, invisible in Explorer and rejected outright by OneDrive. `repair_names()` runs before every sync and renames the files already on disk, moving the manifest entry with them; without that the manifest points at a path that no longer exists and the file is downloaded again under the same broken name, which is why renaming by hand never worked.
 
 Two of the sections read the source as bytes or text rather than calling it,
 because the bug they pin is invisible to an import: `J` scans for

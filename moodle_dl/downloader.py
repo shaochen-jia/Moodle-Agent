@@ -8,7 +8,47 @@ from urllib.parse import unquote, urlparse
 
 from .config import Config
 
-_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f-\x9f]')
+
+# Text that was sent as UTF-8 and decoded as Latin-1 keeps every original byte,
+# one byte per character, so the damage is exactly reversible. A lead byte in
+# C2-F4 followed by a continuation byte in 80-BF is the signature; no real
+# filename puts those two next to each other.
+_MOJIBAKE = re.compile("[\u00c2-\u00f4][\u0080-\u00bf]")
+
+
+def demojibake(s: str) -> str:
+    """Undo UTF-8 text that arrived decoded as Latin-1.
+
+    HTTP header values are Latin-1 by specification, so a Content-Disposition
+    filename that Moodle sent as UTF-8 comes back one character per byte: an
+    en dash turns into 'a' followed by two C1 control characters. Explorer
+    draws those controls as nothing, so the name looks merely odd - but
+    OneDrive and SharePoint reject it outright, which is how this surfaced:
+    the same few files failing to sync every day, looking almost fine.
+    """
+    if not _MOJIBAKE.search(s):
+        return s
+    for _ in range(2):  # a doubly-encoded name needs a second pass
+        try:
+            s = s.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            break  # mixed with real text; the illegal-character pass takes it
+        if not _MOJIBAKE.search(s):
+            break
+    return s
+
+
+def clean_name(name: str) -> str:
+    """Repair the encoding and drop characters a filesystem cannot hold.
+
+    Kept apart from `sanitize` because this half is safe to run over files
+    already on disk: it never shortens a name, so it only ever changes a name
+    that is genuinely broken.
+    """
+    # Windows rejects a trailing dot or space; a *leading* dot is legitimate,
+    # and stripping it renamed .manifest.json out from under the sync.
+    return _ILLEGAL.sub("_", demojibake(name)).rstrip(" .").lstrip(" ")
 
 
 def _long(p: Path) -> Path:
@@ -26,7 +66,7 @@ def sanitize(name: str, limit: int = 150) -> str:
     Windows with a file it will not open - and hides the extension from the
     skip-list and video checks that read it back.
     """
-    name = _ILLEGAL.sub("_", name).strip(" .")
+    name = clean_name(name)
     if len(name) <= limit:
         return name or "file"
     stem, dot, suffix = name.rpartition(".")
@@ -80,6 +120,62 @@ class Manifest:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(self.data, indent=2, ensure_ascii=False),
                              encoding="utf-8")
+
+
+def repair_names(root: Path, manifest: Manifest) -> list[tuple[Path, Path]]:
+    """Rename anything already saved under a broken name, and move the
+    manifest's record with it.
+
+    Repairing the download path only helps files fetched from here on. The
+    names already on disk keep failing the user's cloud sync every day, and
+    renaming one by hand does not help either: the manifest still points at the
+    old path, finds nothing there, and downloads the file again under the same
+    broken name. So the rename has to happen here, where the record can follow.
+
+    Only the encoding and illegal characters are repaired - never the length -
+    so a name that is merely long is left exactly as it is.
+    """
+    if not root.exists():
+        return []
+
+    # Deepest first, so a folder is renamed only once its contents are done.
+    renames: list[tuple[Path, Path]] = []
+    for p in sorted(root.rglob("*"), key=lambda q: len(q.parts), reverse=True):
+        if p == manifest.path:
+            continue  # the sync's own record is not one of the user's files
+        fixed = clean_name(p.name)
+        if not fixed or fixed == p.name:
+            continue
+        target = p.with_name(fixed)
+        if _long(target).exists():
+            continue  # something already sits there; leave both alone
+        try:
+            _long(p).rename(_long(target))
+        except OSError as e:
+            print(f"Could not rename {p.name}: {e}")
+            continue
+        renames.append((p, target))
+
+    if not renames:
+        return []
+
+    changed = False
+    for entry in manifest.data.values():
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            continue
+        path = entry["path"]
+        for old, new in renames:  # applied in the same order, so nesting works
+            o, n = str(old), str(new)
+            if path == o:
+                path = n
+            elif path.startswith(o + os.sep):
+                path = n + path[len(o):]
+        if path != entry["path"]:
+            entry["path"] = path
+            changed = True
+    if changed:
+        manifest.save()
+    return renames
 
 
 def unique_path(directory: Path, filename: str) -> Path:

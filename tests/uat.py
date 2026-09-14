@@ -27,6 +27,7 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -42,7 +43,8 @@ os.environ["LOCALAPPDATA"] = str(TMP / "appdata")
 
 from moodle_dl import ai, captions, history, lock, notes  # noqa: E402
 from moodle_dl.config import Config, load_config  # noqa: E402
-from moodle_dl.downloader import Manifest, sanitize, save_response  # noqa: E402
+from moodle_dl.downloader import (Manifest, demojibake,  # noqa: E402
+                                  repair_names, sanitize, save_response)
 from moodle_dl.main import YouTubeBudget  # noqa: E402
 from moodle_dl.scraper import extract_media_urls, match_week  # noqa: E402
 
@@ -174,6 +176,10 @@ check("D1 empty week writes no note",
       notes.write_note(ncfg, notes.WeekNote(unit="FIT1", week=5,
                                             folder=nroot / "FIT1" / "Week 05")) is None)
 
+# Written as a fixed date first, which quietly started failing the day it went
+# past - a test that only passes until a certain morning is worse than no test.
+_SOON = (datetime.now() + timedelta(days=30)).strftime("%A, %d %B %Y, %I:%M %p")
+
 wk = nroot / "FIT1" / "Week 01"
 wk.mkdir(parents=True)
 (wk / "slides.pdf").write_bytes(b"x" * 2048)
@@ -183,7 +189,7 @@ note = notes.WeekNote(
     no_captions=[("Silent lecture", "https://p/2", captions.NONE),
                  ("Throttled talk", "https://p/3", captions.BLOCKED)],
     assessments=[
-        notes.Assessment("A1", "Thursday, 10 September 2026, 8:00 PM", "u", "assign"),
+        notes.Assessment("A1", _SOON, "u", "assign"),
         notes.Assessment("Old", "Monday, 1 January 2020, 8:00 PM", "u", "assign"),
         notes.Assessment("NoDate", "", "u", "quiz")])
 p = notes.write_note(ncfg, note)
@@ -390,6 +396,49 @@ check("K3 it never deletes the folder this process is running from",
       "_MEIPASS" in run_py and "d.resolve() == mine" in run_py)
 check("K4 it does nothing when running from source",
       'if not getattr(sys, "frozen", False):' in run_py)
+
+print("\n=== L. Mangled filenames ===")
+# Moodle sends the filename in a Content-Disposition header, and HTTP header
+# values are Latin-1 by specification - so a UTF-8 en dash arrived as three
+# characters, two of them C1 controls. Explorer shows almost nothing wrong;
+# OneDrive refuses the whole name and reports it, every day, forever.
+MANGLED = "Empathy \u00e2\u0080\u0093 Advanced.pdf"
+FIXED = "Empathy – Advanced.pdf"
+
+check("L1 a Latin-1 mangled name is repaired",
+      demojibake(MANGLED) == FIXED, ascii(demojibake(MANGLED)))
+check("L2 sanitize repairs it on the way in", sanitize(MANGLED) == FIXED)
+check("L3 healthy names are left alone",
+      all(sanitize(n) == n for n in ["Week 08 – Cryptanalysis.pdf",
+                                     "Café notes.pdf", "中文.pdf"]))
+check("L4 a C1 control that cannot be decoded is still removed",
+      "\u0093" not in sanitize("broken\u0093name.pdf"),
+      ascii(sanitize("broken\u0093name.pdf")))
+check("L5 a leading dot survives, so .manifest.json keeps its name",
+      sanitize(".manifest.json") == ".manifest.json", sanitize(".manifest.json"))
+
+# Repairing new downloads does nothing for the files already on disk, and
+# renaming one by hand makes it worse: the manifest points at a path that no
+# longer exists, so the next sync fetches it again under the same broken name.
+rroot = TMP / "repair"
+rdir = rroot / "FIT5234" / "Assign \u00e2\u0080\u0093 One"
+rdir.mkdir(parents=True)
+(rdir / MANGLED).write_bytes(b"x")
+rman_path = rroot / ".manifest.json"
+rman_path.write_text(json.dumps({"https://m/1": {"path": str(rdir / MANGLED), "size": 1}}),
+                     encoding="utf-8")
+rdone = repair_names(rroot, Manifest(rman_path))
+check("L6 the file and its folder are both renamed", len(rdone) == 2, str(len(rdone)))
+check("L7 the repaired file is on disk",
+      (rroot / "FIT5234" / "Assign – One" / FIXED).exists())
+check("L8 the manifest followed it, so the file is not downloaded again",
+      Manifest(rman_path).has("https://m/1"))
+check("L9 a second run finds nothing left to do",
+      repair_names(rroot, Manifest(rman_path)) == [])
+check("L10 the sync's own manifest file is never renamed", rman_path.exists())
+check("L11 the repair runs before anything is fetched",
+      "repair_names(cfg.root_dir, manifest)"
+      in (REPO / "moodle_dl" / "main.py").read_text(encoding="utf-8"))
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n==== {len(PASS)} passed, {len(FAIL)} failed ====")

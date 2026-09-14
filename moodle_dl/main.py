@@ -7,7 +7,7 @@ from . import ai, captions, history, lock, structure
 from .courses import get_sesskey
 from .config import Config, Unit
 from .notify import notify
-from .downloader import Manifest, sanitize, save_response
+from .downloader import Manifest, repair_names, sanitize, save_response
 from .folders import init_folders, unit_dir, week_dir
 from . import notes
 from .scraper import (ASSESS_MODS, LINK_MODS, Activity, SectionInfo,
@@ -720,6 +720,12 @@ def sync(cfg: Config, headful: bool = False,
 def _sync_locked(cfg: Config, headful: bool,
                  only_units: list[str] | None, cancel=None) -> int:
     manifest = Manifest(cfg.manifest_path)
+
+    # Before anything is fetched: repair names that an earlier version saved
+    # with a mangled separator. Doing it here rather than on download means the
+    # files already sitting in the folder stop failing the user's cloud sync.
+    for old, new in repair_names(cfg.root_dir, manifest):
+        print(f"Renamed a file with a broken name: {old.name} -> {new.name}")
 
     with MoodleSession(cfg, headful=headful) as sess:
         if cfg.course_selection == "starred":
