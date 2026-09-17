@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-![version](https://img.shields.io/badge/version-0.5.0-blue)
+![version](https://img.shields.io/badge/version-0.5.1-blue)
 ![platform](https://img.shields.io/badge/Windows-单文件%20免安装-success)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -253,6 +253,9 @@ Moodle 上还没有的考核、把不算分的取消勾选，也可以设一个�
 ---
 
 ## 常见问题
+
+**出现红色提示说「另一个程序副本正在用浏览器」。**
+后台正在同步。等一分钟再点 Try again，或者先关掉 Auto-sync。同一时间只能有一个程序操作浏览器。
 
 **弹出浏览器窗口让我登录。**
 保存的登录过期了。在那个窗口里登录，同步会自己继续。别关窗口。

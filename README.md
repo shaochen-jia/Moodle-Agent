@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-![version](https://img.shields.io/badge/version-0.5.0-blue)
+![version](https://img.shields.io/badge/version-0.5.1-blue)
 ![platform](https://img.shields.io/badge/Windows-one%20file%2C%20no%20install-success)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -276,6 +276,9 @@ loses your settings.
 ---
 
 ## FAQ
+
+**A red panel says another copy of the app is using the browser.**
+A background sync is running. Wait a minute and press Try again, or turn off Auto-sync first. Only one thing can drive the browser at a time.
 
 **A browser window opened and asked me to log in.**
 Your saved session expired. Log in there and the sync carries on by itself.

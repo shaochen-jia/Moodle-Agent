@@ -618,6 +618,124 @@ _broken.write_text("{ not json", encoding="utf-8")
 check("M23 a damaged sheet does not take the app down",
       gr.Book(_broken).units == {})
 
+print("\n=== N. Failures the user can act on ===")
+# The screenshot that prompted this: a grey line reading "Something went wrong
+# - see the log below", on a page that has no log box, so `_append_log` did
+# nothing and the message itself was discarded. Nobody - including the person
+# who wrote the app - could tell what had failed.
+from moodle_dl.problems import diagnose  # noqa: E402
+from moodle_dl.session import BrowserBusy, LoginRequired  # noqa: E402
+
+REAL = RuntimeError(
+    "Could not launch any browser: BrowserType.launch_persistent_context: "
+    "Target page, context or browser has been closed\nBrowser logs:\n"
+    "<launching> chrome.exe --disable-field-trial-config ...")
+
+_p = diagnose(REAL)
+check("N1 the real failure is named as another copy holding the browser",
+      "already using the browser" in _p.title, _p.title)
+check("N2 its first step is the thing most likely to be true",
+      "auto-sync" in _p.steps[0].lower(), _p.steps[0])
+check("N3 the machine's own words are kept for a bug report",
+      "launch_persistent_context" in _p.details)
+
+_known = {
+    "browser busy": (BrowserBusy("x"), "background sync"),
+    "not signed in": (LoginRequired("x"), "signed in"),
+    "offline": (RuntimeError("net::ERR_NAME_NOT_RESOLVED"), "could not reach"),
+    "no browser": (RuntimeError("Executable doesn't exist; playwright install"),
+                   "could not find a browser"),
+    "slow": (TimeoutError("Timeout 30000ms exceeded"), "too long"),
+    "folder": (PermissionError("[WinError 5] Access is denied"), "folder"),
+}
+_wrong = [k for k, (e, want) in _known.items() if want not in diagnose(e).title]
+check("N4 every known cause gets its own explanation",
+      not _wrong, ", ".join(_wrong) or "all mapped")
+
+_fallback = diagnose(ValueError("something nobody predicted"))
+check("N5 an unknown failure still says what to do",
+      len(_fallback.steps) >= 2 and "issues" in _fallback.steps[-1])
+check("N6 no explanation leaks jargon at the user",
+      not any(w in p.title.lower()
+              for p in [diagnose(e) for e, _ in _known.values()] + [_p, _fallback]
+              for w in ("log", "traceback", "exception", "stderr", "null")),
+      "checked every title")
+check("N7 every explanation offers at least one thing to try",
+      all(diagnose(e).steps for e, _ in _known.values()))
+
+# The cause itself: two processes, one browser profile. The lock is what turns
+# a hundred lines of Chromium launch flags into a sentence.
+import subprocess  # noqa: E402
+
+_holder = TMP / "holder.py"
+_holder.write_text(
+    "import sys, time\n"
+    f"sys.path.insert(0, {str(REPO)!r})\n"
+    "import os\n"
+    f"os.environ['LOCALAPPDATA'] = {str(TMP / 'appdata')!r}\n"
+    "from moodle_dl import lock\n"
+    "print(lock.acquire('browser'), flush=True)\n"
+    "time.sleep(30)\n", encoding="utf-8")
+_proc = subprocess.Popen([sys.executable, str(_holder)], stdout=subprocess.PIPE,
+                         text=True)
+try:
+    _got = (_proc.stdout.readline() or "").strip()
+    check("N8 another process can claim the browser", _got == "True", _got)
+    check("N9 and this one is then refused it", not lock.acquire("browser"),
+          "would have launched a second browser on the same profile")
+finally:
+    _proc.kill()
+    _proc.wait(timeout=10)
+check("N10 the claim is released when that process dies",
+      lock.acquire("browser"), "a dead holder must not block the app for ever")
+lock.release("browser")
+
+# N8-N10 only prove the lock works, not that the session uses it - deleting
+# the claim from MoodleSession failed none of them. So drive a session with
+# the browser stubbed out and watch the claim itself.
+import types  # noqa: E402
+
+import moodle_dl.session as _sess_mod  # noqa: E402
+
+_lockfile = lock._lock_dir() / "browser.lock"
+
+
+class _NoBrowserSession(_sess_mod.MoodleSession):
+    """Everything a session does, minus starting a real browser."""
+
+    def _launch(self, headless, offscreen=False):
+        self.ctx = None
+
+    def _ensure_logged_in(self):
+        return True
+
+
+_real_pw = _sess_mod.sync_playwright
+_sess_mod.sync_playwright = lambda: types.SimpleNamespace(
+    start=lambda: types.SimpleNamespace(stop=lambda: None))
+try:
+    _scfg = cfg_for(TMP / "sess")
+    with _NoBrowserSession(_scfg):
+        _held = _lockfile.exists() and _lockfile.read_text().strip() == str(os.getpid())
+    check("N11 a session claims the browser while it is open", _held,
+          "otherwise two processes open one profile and Chromium dies")
+    check("N12 and gives it back when it closes", not _lockfile.exists())
+
+    class _Failing(_NoBrowserSession):
+        def _ensure_logged_in(self):
+            raise _sess_mod.LoginRequired("nobody signed in")
+
+    try:
+        with _Failing(_scfg):
+            pass
+    except _sess_mod.LoginRequired:
+        pass
+    check("N13 a session that fails to open does not keep the browser",
+          not _lockfile.exists(),
+          "__exit__ never runs when __enter__ raises, so this leaked")
+finally:
+    _sess_mod.sync_playwright = _real_pw
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n==== {len(PASS)} passed, {len(FAIL)} failed ====")
 if FAIL:

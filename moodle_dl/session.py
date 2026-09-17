@@ -6,6 +6,7 @@ import time
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
+from . import lock
 from .config import Config
 from .notify import notify
 
@@ -18,6 +19,17 @@ SESSION_COOKIE_MAX_AGE_H = 12
 
 class LoginRequired(RuntimeError):
     """Raised when a sync could not proceed because nobody logged in."""
+
+
+class BrowserBusy(RuntimeError):
+    """Raised when another part of the app already holds the browser profile.
+
+    Chromium allows one process into a profile directory at a time, so an
+    auto-sync running in the background makes the setup screen's course fetch
+    fail - and it failed with a hundred lines of Chromium launch flags, which
+    told the user nothing. Claiming the profile explicitly turns that into a
+    sentence: something else is using it, wait.
+    """
 
 
 class MoodleSession:
@@ -33,20 +45,39 @@ class MoodleSession:
         self.headful = headful
         self._pw = None
         self.ctx: BrowserContext | None = None
+        self._holds_lock = False
 
     def __enter__(self) -> "MoodleSession":
-        self._pw = sync_playwright().start()
-        self._launch(headless=not self.headful)
-        if not self._ensure_logged_in():
-            raise LoginRequired("Sign-in is needed before files can sync.")
+        if not lock.acquire("browser"):
+            raise BrowserBusy(
+                "Another part of the app is using the browser right now.")
+        self._holds_lock = True
+        try:
+            self._pw = sync_playwright().start()
+            self._launch(headless=not self.headful)
+            if not self._ensure_logged_in():
+                raise LoginRequired("Sign-in is needed before files can sync.")
+        except BaseException:
+            # __exit__ never runs when __enter__ raises, so the profile would
+            # stay claimed until the process died.
+            self._unlock()
+            raise
         return self
 
     def __exit__(self, *exc) -> None:
-        if self.ctx:
-            self._save_cookies()
-            self.ctx.close()
-        if self._pw:
-            self._pw.stop()
+        try:
+            if self.ctx:
+                self._save_cookies()
+                self.ctx.close()
+            if self._pw:
+                self._pw.stop()
+        finally:
+            self._unlock()
+
+    def _unlock(self) -> None:
+        if getattr(self, "_holds_lock", False):
+            lock.release("browser")
+            self._holds_lock = False
 
     # -- internals ---------------------------------------------------------
 

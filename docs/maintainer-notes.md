@@ -87,7 +87,7 @@ are the ones the free tier serves.
 python tests/uat.py
 ```
 
-A hundred and four checks, no network, and it touches nothing real - `LOCALAPPDATA` is
+A hundred and seventeen checks, no network, and it touches nothing real - `LOCALAPPDATA` is
 redirected to a temp folder at import time, so the lock file, settings and sync
 history all land there rather than in the copy you actually use. Exits non-zero
 on failure, so a hook or CI step can gate on it.
@@ -141,6 +141,35 @@ in the item's own name, then the range - a range of 0-15 is only probably a
 touched and `Part.edited` does the same for one quiz; a sync updates
 everything else and leaves those alone. This is the feature, not a safety net:
 Moodle cannot know about a fourth quiz it has not created, and the user can.
+
+## Failures
+
+`problems.py` maps an exception to a title, a list of steps and the raw text.
+It is deliberately outside the GUI: the mapping is the part worth testing, and
+section N tests it without opening a window.
+
+The report that caused this module is worth keeping in mind. The setup screen
+showed a grey line reading "Something went wrong - see the log below". There
+is no log box on that screen, so `_append_log` returned without doing
+anything and **the message was discarded entirely** - the app's own author
+could not tell what had failed. The Load button also sat reading "Loading..."
+for ever, because only the disabled state was reset, not the label.
+
+Three rules came out of it:
+
+- A failure gets a surface, not a status line. `problem_card` renders where
+  the missing content should have been, so it is where the user is looking.
+- The raw text is always kept and always copyable. It is the only thing that
+  makes a report actionable, and it was the thing being thrown away.
+- Every title is in the user's words. Section N fails on "log", "traceback",
+  "exception", "stderr" or "null" appearing in one.
+
+The underlying cause of that particular failure was two processes and one
+Chromium profile: a background auto-sync had it, so the setup screen's fetch
+died with a hundred lines of launch flags. `MoodleSession` now claims a
+`browser` lock for the life of the session, which turns that into a sentence.
+`__enter__` releases it by hand when it raises, because `__exit__` does not
+run in that case - N13 pins exactly that.
 
 ## Design decisions worth keeping
 

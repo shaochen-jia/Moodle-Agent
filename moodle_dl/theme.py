@@ -23,6 +23,12 @@ GHOST_HOVER = ("#F1EFEA", "#2F2F2D")
 SUCCESS = ("#3B9E6E", "#4FB985")
 DANGER = ("#C2452F", "#E1705C")
 
+# A failure needs its own surface, not just red text. A grey line in a corner
+# reading "something went wrong" was missed even by the person who wrote it.
+DANGER_WASH = ("#FDF1EE", "#33211E")
+DANGER_BORDER = ("#F0C9BF", "#6A3A31")
+DANGER_TEXT = ("#8E2F1F", "#F0A594")
+
 RADIUS_CARD = 12
 RADIUS_CTL = 8
 

@@ -412,16 +412,23 @@ class GradesPage:
 
     def _refresh_bg(self) -> None:
         from .main import refresh_grades
+        err = None
         try:
             refresh_grades(self.cfg)
-            err = ""
         except Exception as e:  # noqa: BLE001 - shown, never raised into tk
-            err = f"{type(e).__name__}: {e}"
+            err = e
         self.app.after(0, lambda: self._refreshed(err))
 
-    def _refreshed(self, err: str) -> None:
-        if err:
-            self.saved_hint.configure(text=err[:70], text_color=t.DANGER)
+    def _refreshed(self, err) -> None:
+        if err is not None:
+            from .gui import problem_card
+            from .problems import diagnose
+            problem = diagnose(err)
+            self.saved_hint.configure(text=problem.title, text_color=t.DANGER)
+            for w in self.list.winfo_children():
+                w.destroy()
+            problem_card(self.list, problem, on_retry=self._refresh).pack(
+                fill="x", padx=6, pady=6)
             return
         self.book = grades.Book(grades.default_path())
         self.dirty = False

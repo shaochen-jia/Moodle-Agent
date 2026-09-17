@@ -70,6 +70,85 @@ def _label(parent, text, size=13, color=None, bold=False, **kw):
                         text_color=color or t.TEXT, **kw)
 
 
+def problem_card(parent, problem, on_retry=None, on_copy=None) -> ctk.CTkFrame:
+    """A failure, said in full: what happened, what to do, and the raw text.
+
+    Built as a panel rather than a status line because the status line was
+    genuinely missed - small, grey, top-left, above a screen whose middle was
+    empty and calm. This sits where the missing content should have been.
+    """
+    card = ctk.CTkFrame(parent, fg_color=t.DANGER_WASH,
+                        corner_radius=t.RADIUS_CARD,
+                        border_width=1, border_color=t.DANGER_BORDER)
+
+    head = ctk.CTkFrame(card, fg_color="transparent")
+    head.pack(fill="x", padx=16, pady=(14, 2))
+    _label(head, "!", size=15, bold=True, color=t.DANGER).pack(side="left",
+                                                               padx=(0, 9))
+    _label(head, problem.title, size=14, bold=True, color=t.DANGER_TEXT,
+           anchor="w", wraplength=560).pack(side="left",
+                                                            fill="x", expand=True)
+
+    for i, step in enumerate(problem.steps, 1):
+        line = ctk.CTkFrame(card, fg_color="transparent")
+        line.pack(fill="x", padx=16, pady=1)
+        _label(line, f"{i}.", size=13, color=t.TEXT_SECONDARY,
+               width=18, anchor="w").pack(side="left")
+        _label(line, step, size=13, color=t.TEXT_SECONDARY, anchor="w",
+               wraplength=540).pack(side="left", fill="x",
+                                                    expand=True)
+
+    row = ctk.CTkFrame(card, fg_color="transparent")
+    row.pack(fill="x", padx=16, pady=(10, 14))
+    if on_retry is not None and problem.retry:
+        ctk.CTkButton(row, text="Try again", command=on_retry, width=104,
+                      height=32, corner_radius=t.RADIUS_CTL, font=_font(13, True),
+                      fg_color=t.ACCENT, hover_color=t.ACCENT_HOVER,
+                      text_color=t.ON_ACCENT).pack(side="left")
+
+    box = ctk.CTkTextbox(card, height=92, font=_mono(11), fg_color=t.CARD,
+                         text_color=t.TEXT_SECONDARY, border_width=1,
+                         border_color=t.DANGER_BORDER,
+                         corner_radius=t.RADIUS_CTL, wrap="word")
+    box.insert("1.0", problem.details or "(no further detail)")
+    box.configure(state="disabled")
+
+    shown = {"on": False}
+
+    def toggle() -> None:
+        shown["on"] = not shown["on"]
+        if shown["on"]:
+            box.pack(fill="x", padx=16, pady=(0, 14))
+            more.configure(text="Hide technical details")
+        else:
+            box.pack_forget()
+            more.configure(text="Technical details")
+
+    more = ctk.CTkButton(row, text="Technical details", command=toggle,
+                         width=132, height=32, corner_radius=t.RADIUS_CTL,
+                         font=_font(12), fg_color="transparent",
+                         hover_color=t.GHOST_HOVER, text_color=t.TEXT_SECONDARY,
+                         border_width=1, border_color=t.DANGER_BORDER)
+    more.pack(side="left", padx=8)
+
+    def copy() -> None:
+        parent.clipboard_clear()
+        parent.clipboard_append(problem.details)
+        copy_btn.configure(text="Copied")
+        parent.after(1800, lambda: copy_btn.winfo_exists()
+                     and copy_btn.configure(text="Copy details"))
+        if on_copy is not None:
+            on_copy()
+
+    copy_btn = ctk.CTkButton(row, text="Copy details", command=copy, width=110,
+                             height=32, corner_radius=t.RADIUS_CTL,
+                             font=_font(12), fg_color="transparent",
+                             hover_color=t.GHOST_HOVER,
+                             text_color=t.TEXT_SECONDARY, border_width=0)
+    copy_btn.pack(side="left")
+    return card
+
+
 class _QueueWriter(io.TextIOBase):
     """Redirects the sync engine's prints into the GUI log."""
 
@@ -129,13 +208,53 @@ class App(ctk.CTk):
                 elif kind == "courses":
                     self._show_courses(payload)
                 elif kind == "error":
-                    self._append_log(f"! {payload}")
-                    self._set_status("Something went wrong - see the log below")
-                    self.busy = False
-                    self._set_buttons(enabled=True)
+                    self._show_problem(payload)
         except queue.Empty:
             pass
         self.after(120, self._poll)
+
+    def _clear_problem(self) -> None:
+        """Take down a previous failure before trying the same thing again."""
+        host = getattr(self, "problem_host", None)
+        if host is not None and host.winfo_exists():
+            for w in host.winfo_children():
+                w.destroy()
+
+    def _show_problem(self, exc) -> None:
+        """Put a failure where the user is already looking, in their words.
+
+        The old path wrote the message to the log box and told the user to
+        read it. On the setup screen there is no log box, so `_append_log`
+        returned without doing anything and the only trace of the failure was
+        a grey line in the corner - the message itself was thrown away, and
+        the Load button sat reading "Loading..." for ever.
+        """
+        from .problems import diagnose
+
+        self.busy = False
+        self._set_buttons(enabled=True)
+        problem = diagnose(exc)
+        self._append_log(f"! {problem.details}")   # still logged where there is one
+
+        retry = getattr(self, "_retry_action", None)
+        for attr in ("course_frame", "problem_host"):
+            host = getattr(self, attr, None)
+            if host is None or not host.winfo_exists():
+                continue
+            for w in host.winfo_children():
+                w.destroy()
+            problem_card(host, problem, on_retry=retry).pack(
+                fill="x", padx=6, pady=6)
+            break
+
+        # A button still reading "Loading..." after the load failed is its own
+        # small lie, and it was on screen in the report that prompted this.
+        for name, label in (("fetch_btn", "Load my courses from Moodle"),
+                            ("sync_btn", "Sync now")):
+            btn = getattr(self, name, None)
+            if btn is not None and btn.winfo_exists():
+                btn.configure(text=label)
+        self._set_status(problem.title, t.DANGER)
 
     def _append_log(self, line: str) -> None:
         if self.log_box is None or not self.log_box.winfo_exists():
@@ -202,6 +321,10 @@ class App(ctk.CTk):
         self.stats = ctk.CTkFrame(card, fg_color="transparent")
         self.stats.pack(fill="x", padx=18, pady=(0, 14))
         self._render_stats(cfg)
+
+        # Empty until something fails, then the whole explanation.
+        self.problem_host = ctk.CTkFrame(card, fg_color="transparent")
+        self.problem_host.pack(fill="x", padx=12)
 
         self.log_box = ctk.CTkTextbox(
             card, state="disabled", font=_mono(12), fg_color=t.SUBTLE,
@@ -330,6 +453,8 @@ class App(ctk.CTk):
     def _start_sync(self) -> None:
         if self.busy:
             return
+        self._retry_action = self._start_sync
+        self._clear_problem()
         self.busy = True
         self.cancel_event = threading.Event()
         self._set_buttons(enabled=False)
@@ -346,7 +471,7 @@ class App(ctk.CTk):
                     sync(cfg, cancel=self.cancel_event)
                 self.q.put(("done", "sync"))
             except Exception as e:
-                self.q.put(("error", str(e)))
+                self.q.put(("error", e))
 
         self._run_bg(work)
 
@@ -573,6 +698,7 @@ class App(ctk.CTk):
     def _start_fetch(self) -> None:
         if self.busy:
             return
+        self._retry_action = self._start_fetch
         self.busy = True
         self._set_buttons(enabled=False)
         self.fetch_btn.configure(text="Loading...")
@@ -593,7 +719,7 @@ class App(ctk.CTk):
                 courses.sort(key=lambda c: -c.startdate)
                 self.q.put(("courses", courses))
             except Exception as e:
-                self.q.put(("error", str(e)))
+                self.q.put(("error", e))
 
         self._run_bg(work)
 
