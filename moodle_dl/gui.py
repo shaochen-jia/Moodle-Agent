@@ -87,16 +87,18 @@ def problem_card(parent, problem, on_retry=None, on_copy=None) -> ctk.CTkFrame:
     _label(head, "!", size=15, bold=True, color=t.DANGER).pack(side="left",
                                                                padx=(0, 9))
     _label(head, problem.title, size=14, bold=True, color=t.DANGER_TEXT,
-           anchor="w", wraplength=560).pack(side="left",
-                                                            fill="x", expand=True)
+           anchor="w", justify="left", wraplength=560).pack(
+               side="left", fill="x", expand=True)
 
     for i, step in enumerate(problem.steps, 1):
         line = ctk.CTkFrame(card, fg_color="transparent")
         line.pack(fill="x", padx=16, pady=1)
         _label(line, f"{i}.", size=13, color=t.TEXT_SECONDARY,
                width=18, anchor="w").pack(side="left")
+        # justify matters once a step wraps: without it the second line
+        # centres itself under the first, which looks like a bug because it is.
         _label(line, step, size=13, color=t.TEXT_SECONDARY, anchor="w",
-               wraplength=540).pack(side="left", fill="x",
+               justify="left", wraplength=540).pack(side="left", fill="x",
                                                     expand=True)
 
     row = ctk.CTkFrame(card, fg_color="transparent")
