@@ -342,22 +342,10 @@ class App(ctk.CTk):
             fg_color="transparent", hover_color=t.GHOST_HOVER,
             text_color=t.TEXT_SECONDARY, border_width=0)
         self.setup_btn.pack(side="left")
-        ctk.CTkButton(
-            foot, text="Grades", command=self._build_grades,
-            height=26, width=64, corner_radius=t.RADIUS_CTL, font=_font(12),
-            fg_color="transparent", hover_color=t.GHOST_HOVER,
-            text_color=t.TEXT_SECONDARY, border_width=0).pack(side="left")
         _label(foot, f"Every {cfg.sync_interval_hours:g} hours", size=12,
                color=t.TEXT_MUTED).pack(side="left", padx=14)
         _label(foot, f"v{__version__}", size=12,
                color=t.TEXT_MUTED).pack(side="right")
-
-    def _build_grades(self) -> None:
-        from .gui_grades import GradesPage
-        cfg = load_config(self.config_path)
-        page = GradesPage(self, cfg, on_back=self._build_dashboard,
-                          on_refresh=None)
-        page.build()
 
     def _render_stats(self, cfg: Config, new_counts: dict | None = None) -> None:
         for w in self.stats.winfo_children():

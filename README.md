@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-![version](https://img.shields.io/badge/version-0.5.1-blue)
+![version](https://img.shields.io/badge/version-0.6.0-blue)
 ![platform](https://img.shields.io/badge/Windows-one%20file%2C%20no%20install-success)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -30,7 +30,6 @@ You click once. From then on, this happens on its own:
 | 🕐 **Late files** | Tutorial solutions posted three days after class arrive by themselves | none |
 | 📝 **Assignments** | Briefs and rubrics per assignment, plus an index of every assessment with due dates | none |
 | 🎧 **Transcripts** | Lecture recordings turned into readable text — no video downloaded | none |
-| 📊 **Grades** | A running total per unit: what you scored, what it was worth, what is left, and what you still need for a D or an HD | none |
 | 🗒️ **Weekly notes** | A `Week NN Summary` telling you **what happened this week** — what landed, what was recorded, what's due next | none |
 | 🤖 **AI summaries** | A revision-ready summary on top of each transcript | one API key ([see below](#ai-summaries--optional)) |
 | 🔒 **Your password** | Never seen by the app. Login happens on Monash's own page | none |
@@ -175,63 +174,6 @@ provider it belongs to.
 
 ---
 
-## Grades — where the numbers actually come from
-
-Moodle's grade report at Monash shows four columns: item, mark, range,
-feedback. **No weight, no contribution, no course total** — they are turned
-off in every unit checked. So "am I passing?" is a question the gradebook
-cannot answer, and the app rebuilds the answer from three sources.
-
-| Source | What it knows |
-| :-- | :-- |
-| The gradebook | What you scored, and out of what |
-| The unit's own PDFs | What each piece is worth — the week 1 overview usually states the whole scheme |
-| You | Everything neither of them says |
-
-**Reading the range is the whole trick.** A bare `21` means nothing: out of 25
-it is a good mark, out of 100 it is a disaster. Every figure is
-`score ÷ range × weight`, so both styles come out right.
-
-**Where weights come from, in order.** A document that states the scheme beats
-a name that happens to carry a number, and both beat the range. Whatever is
-used is printed under the row, so you can check it:
-
-```
-Individual Assignment 1                      13.80 / 20%
-     weight from FIT5234 Applied Week 1 - Unit Overview (updated).pdf p8
-```
-
-**It says when it does not know.** If the weights do not add to 100%, the page
-says so and names what is missing rather than quietly dividing by the wrong
-number. A unit that states nothing anywhere stays blank until you fill it in.
-
-### The part Moodle cannot tell you
-
-One real unit's overview says the quiz block is `10% (2.5% * 4)` — four
-quizzes. Moodle has created **three**. Count the quizzes in the gradebook and
-every figure is wrong until November. So the app reads the four out of the
-slide, shows three real quizzes and one empty slot, and counts only the ones
-that have been marked.
-
-The same applies to `best 8 of 10` rules: nothing is ever dropped silently.
-Set **counts** on the block and the arithmetic follows; leave it and every
-quiz counts.
-
-### Everything on the page is editable
-
-Open **Grades** in the app. Change any weight or mark and the totals move as
-you type; press **Save** to keep them. A field you have edited is yours — no
-later sync overwrites it. You can add an assessment that is not in Moodle
-yet, untick one that does not count, and set a target:
-
-> need 69.4% average on the remaining 77.5%
-
-When a mark appears, you get a desktop notification and a line in that week's
-note. The sheet lives in `%LOCALAPPDATA%\moodle-downloader\grades.json` and
-is never uploaded anywhere.
-
----
-
 ## When something can't be done, it says so
 
 Silent skipping is how bugs stay invisible, so every recording that produces
@@ -265,7 +207,6 @@ loses your settings.
 | `assignments_folder` | Set to `""` to skip assignments entirely | `Assignments` |
 | `weekly_notes` | `false` turns off the weekly summary notes | `true` |
 | `transcripts` | `false` turns off caption downloads | `true` |
-| `track_grades` | `false` stops the app reading your gradebook at all | `true` |
 | `note_formats` | Output formats — `docx`, `txt`, `md` | `docx`, `txt` |
 | `max_youtube_per_sync` | YouTube caption fetches allowed **per sync, across all units** | `8` |
 | `ai_provider` / `ai_api_key` | Optional AI summaries | off |

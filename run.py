@@ -203,10 +203,6 @@ def cli() -> int:
     sub.add_parser("init", help="create the unit/week folder structure")
     sub.add_parser("autosync", help="background loop used by auto-sync")
 
-    p_grades = sub.add_parser("grades", help="show the grade sheet")
-    p_grades.add_argument("--refresh", action="store_true",
-                          help="read Moodle's gradebook again first")
-
     p_sync = sub.add_parser("sync", help="download new files from Moodle")
     p_sync.add_argument("--headful", action="store_true",
                         help="show the browser window")
@@ -232,55 +228,10 @@ def cli() -> int:
             print(f"+ {d}")
         print(f"Folder structure ready under: {cfg.root_dir}")
         return 0
-    if args.cmd == "grades":
-        return show_grades(cfg, refresh=args.refresh)
     if args.cmd == "sync":
         sync(cfg, headful=args.headful, only_units=args.unit)
         return 0
     return 1
-
-
-def show_grades(cfg, refresh: bool = False) -> int:
-    """Print the grade sheet, and what the unit's own documents say.
-
-    The document scan needs no network, which makes this the quickest way to
-    check that a packaged build can still read PDFs at all - the reader is a
-    binary dependency, and a build that quietly lost it would otherwise look
-    like a unit that simply never states its weights.
-    """
-    from moodle_dl import assessplan, grades
-    from moodle_dl.folders import unit_dir
-
-    if refresh:
-        from moodle_dl.main import refresh_grades
-        for line in sorted(m for v in refresh_grades(cfg).values() for m in v):
-            print(f"  new: {line}")
-
-    print(f"PDF reading: {'available' if assessplan.available() else 'UNAVAILABLE'}")
-    book = grades.Book(grades.default_path())
-    for unit in cfg.units:
-        u = book.unit(unit.code)
-        st = u.standing()
-        state = "" if u.weights_complete() else \
-            f"   [weights add to {u.weight_total():g}%, not 100]"
-        print(f"\n{unit.code}  "
-              f"{'no marks yet' if st is None else f'{st:.1f}% so far ({u.band()})'}"
-              f"   marked {u.assessed():g}%   left {u.remaining():g}%{state}")
-        for item in u.items:
-            w = f"{item.weight:g}%" if item.weight is not None else "?"
-            pct = item.percent()
-            print(f"   {w:>5}  {item.name[:52]:<54}"
-                  f"{'-' if pct is None else f'{pct:.0f}%':>5}"
-                  f"  = {item.earned():.2f}")
-        found = assessplan.read(unit_dir(cfg, unit.code))
-        if found:
-            total = sum(e.weight for e in found)
-            print(f"   scheme found in your files: {total:g}%"
-                  f"{'' if abs(total - 100) < 0.5 else ' (incomplete)'}")
-            for e in found:
-                part = f" ({e.each:g}% x {e.count})" if e.count else ""
-                print(f"      {e.weight:g}%{part} {e.name[:44]}  <- {e.source}")
-    return 0
 
 
 if __name__ == "__main__":

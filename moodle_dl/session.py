@@ -58,9 +58,16 @@ class MoodleSession:
             if not self._ensure_logged_in():
                 raise LoginRequired("Sign-in is needed before files can sync.")
         except BaseException:
-            # __exit__ never runs when __enter__ raises, so the profile would
-            # stay claimed until the process died.
-            self._unlock()
+            # __exit__ never runs when __enter__ raises, so everything claimed
+            # above has to be given back here.
+            #
+            # The driver matters more than it looks. Playwright's sync API is
+            # bound to the thread that started it, and a driver left running
+            # poisons that thread: every later call answers "you are using the
+            # Sync API inside the asyncio loop". In a long-lived auto-sync
+            # process that means one offline morning breaks every sync after
+            # it, until the app is restarted - which is exactly what happened.
+            self._shutdown()
             raise
         return self
 
@@ -69,10 +76,19 @@ class MoodleSession:
             if self.ctx:
                 self._save_cookies()
                 self.ctx.close()
-            if self._pw:
-                self._pw.stop()
         finally:
-            self._unlock()
+            self._shutdown()
+
+    def _shutdown(self) -> None:
+        """Stop the driver and release the profile, whatever state we are in."""
+        if self._pw is not None:
+            try:
+                self._pw.stop()
+            except Exception:
+                pass
+            self._pw = None
+        self.ctx = None
+        self._unlock()
 
     def _unlock(self) -> None:
         if getattr(self, "_holds_lock", False):

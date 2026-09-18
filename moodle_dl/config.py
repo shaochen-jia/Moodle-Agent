@@ -54,7 +54,6 @@ class Config:
     weekly_notes: bool = True  # write a Week NN Summary note per week
     # Word first, plain text second: Markdown is unfamiliar to most readers.
     note_formats: tuple[str, ...] = ("docx", "txt")
-    track_grades: bool = True  # read the gradebook and keep a grade sheet
     transcripts: bool = True  # save captions of lecture recordings
     download_videos: bool = False  # keep the video files themselves
     transcribe_media: bool = True  # let the AI read recordings with no captions
@@ -114,7 +113,6 @@ def load_config(path: str | Path) -> Config:
         note_formats=tuple(
             f for f in (raw.get("note_formats") or ["docx", "txt"])
             if f in ("docx", "txt", "md")) or ("docx", "txt"),
-        track_grades=bool(raw.get("track_grades", True)),
         transcripts=bool(raw.get("transcripts", True)),
         download_videos=bool(raw.get("download_videos", False)),
         transcribe_media=bool(raw.get("transcribe_media", True)),

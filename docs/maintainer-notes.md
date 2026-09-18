@@ -87,7 +87,7 @@ are the ones the free tier serves.
 python tests/uat.py
 ```
 
-A hundred and seventeen checks, no network, and it touches nothing real - `LOCALAPPDATA` is
+Ninety checks, no network, and it touches nothing real - `LOCALAPPDATA` is
 redirected to a temp folder at import time, so the lock file, settings and sync
 history all land there rather than in the copy you actually use. Exits non-zero
 on failure, so a hook or CI step can gate on it.
@@ -104,43 +104,6 @@ Two of the sections read the source as bytes or text rather than calling it,
 because the bug they pin is invisible to an import: `J` scans for
 double-encoded punctuation, and `K` checks the unpack sweep is still wired into
 `cli()`.
-
-## Grades
-
-Three modules, kept apart because they fail in different ways:
-
-- `gradebook.py` parses Moodle's user report. Four columns only - Monash has
-  the weight, contribution and course-total columns turned off in every unit
-  checked, so this stops at "what did I score, out of what".
-- `assessplan.py` reads the unit's own PDFs and Word documents for the marking
-  scheme. Documents are ranked (unit overview first, transcripts last) and
-  reading stops once one document's own numbers reach 100%.
-- `grades.py` holds the model, the arithmetic and the merge. It imports
-  nothing that touches the network, which is why the whole thing is testable
-  from saved HTML.
-
-**Entries are never pooled across documents.** An assignment brief breaks its
-own 15% into tasks worth 6% and 3%; adding those to the unit overview's list
-produced a unit worth 118%. Only a document that states a whole scheme is
-believed, and only a complete scheme is allowed to create items.
-
-**Name matching has two rules, both from real failures.** A shared number is
-never enough on its own - "Quiz 1" and "Individual Assignment 1" matched on
-the digit alone and walked the assignment weights down the quiz list. A
-differing number disqualifies - "Individual Assignment 1" and "Individual
-Assignment 3" otherwise match on every word. Section M pins both directly,
-because the fixture-level checks did not: with the quizzes bound into a block,
-no bare quiz reaches the matcher and the bug cannot reappear there.
-
-**A weight is only as good as its source,** so every one carries where it came
-from and the GUI prints it under the row. The order is document, then a number
-in the item's own name, then the range - a range of 0-15 is only probably a
-15% weight, and is 0-100 far too often to trust.
-
-**Anything the user edits is locked.** `Item.edited` lists the fields they have
-touched and `Part.edited` does the same for one quiz; a sync updates
-everything else and leaves those alone. This is the feature, not a safety net:
-Moodle cannot know about a fourth quiz it has not created, and the user can.
 
 ## Failures
 

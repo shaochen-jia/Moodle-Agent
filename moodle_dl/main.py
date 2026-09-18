@@ -301,8 +301,7 @@ def _rel(cfg: Config, path) -> str:
 
 def sync_unit(sess: MoodleSession, cfg: Config, manifest: Manifest,
               unit: Unit, cancel=None,
-              yt_budget: YouTubeBudget | None = None,
-              marks: list[str] | None = None) -> int:
+              yt_budget: YouTubeBudget | None = None) -> int:
     print(f"\n=== {unit.code} "
           f"({cfg.base_url}/course/view.php?id={unit.course_id}) ===")
     pending: dict[int, list[str]] = {}
@@ -388,8 +387,7 @@ def sync_unit(sess: MoodleSession, cfg: Config, manifest: Manifest,
     if cfg.weekly_notes:
         try:
             written = _write_week_notes(cfg, unit, week_links, found,
-                                        no_captions, pending_by_week,
-                                        marks)
+                                        no_captions, pending_by_week)
             for p in written:
                 print(f"    ~ {_rel(cfg, p)}")
         except Exception as e:
@@ -656,69 +654,15 @@ def _mime_for(suffix: str) -> str:
             ".wav": "audio/wav"}.get(suffix.lower(), "video/mp4")
 
 
-def refresh_grades(cfg: Config, sess: MoodleSession | None = None) -> dict[str, list[str]]:
-    """Update the grade sheet from Moodle and the unit's own documents.
-
-    Returns the marks that arrived since the last run, per unit, so the caller
-    can say so out loud. Never raises for one unit's sake: a gradebook that
-    will not load is worth a line in the log, not a failed sync.
-    """
-    from . import assessplan, gradebook, grades as gr
-
-    book = gr.Book(gr.default_path())
-    news: dict[str, list[str]] = {}
-
-    def run(s: MoodleSession) -> None:
-        for unit in cfg.units:
-            try:
-                rows = gradebook.fetch(s, cfg, unit)
-            except Exception as e:  # noqa: BLE001
-                print(f"  [grades] {unit.code}: could not read the gradebook - {e}")
-                continue
-            plan = assessplan.read(unit_dir(cfg, unit.code))
-            got = gr.merge(book.unit(unit.code), rows, plan)
-            if got:
-                news[unit.code] = got
-            u = book.unit(unit.code)
-            state = "" if u.weights_complete() else \
-                f" - weights add to {u.weight_total():g}%, not 100"
-            print(f"  [grades] {unit.code}: {len(u.items)} item(s){state}")
-
-    if sess is not None:
-        run(sess)
-    else:
-        with MoodleSession(cfg) as s:
-            run(s)
-    book.save()
-    return news
-
-
-def _marks_week(cfg: Config, unit: Unit) -> int | None:
-    """The week a mark should be recorded against: the latest one with content.
-
-    A gradebook does not say which teaching week a mark belongs to, and it
-    rarely matches the week the work was set anyway. The week you are actually
-    in is the one that has files in it, so that is where it goes.
-    """
-    latest = None
-    for week in cfg.weeks:
-        folder = week_dir(cfg, unit.code, week)
-        if folder.exists() and any(p.is_file() for p in folder.iterdir()):
-            latest = week
-    return latest
-
-
 def _write_week_notes(cfg: Config, unit: Unit,
                       week_links: dict[int, list[tuple[str, str]]],
                       assessments: list[notes.Assessment],
                       no_captions: dict[int, list[tuple[str, str]]] | None = None,
-                      pending: dict[int, list[str]] | None = None,
-                      marks: list[str] | None = None,
+                      pending: dict[int, list[str]] | None = None
                       ) -> list[Path]:
     """Refresh the per-week summary note for every week that has content."""
     written = []
     pending_by_week = pending or {}
-    mark_week = _marks_week(cfg, unit) if marks else None
     for week in cfg.weeks:
         note = notes.WeekNote(
             unit=unit.code, week=week,
@@ -727,7 +671,6 @@ def _write_week_notes(cfg: Config, unit: Unit,
             assessments=assessments,
             no_captions=(no_captions or {}).get(week, []),
             pending=pending_by_week.get(week, []),
-            marks=list(marks or []) if week == mark_week else [],
         )
         path = notes.write_note(cfg, note)
         if path:
@@ -755,16 +698,9 @@ def sync(cfg: Config, headful: bool = False,
         print("Another sync is already running - skipping this one.")
         return
     try:
-        _sync_locked.last_marks = []
         new_files = _sync_locked(cfg, headful, only_units, cancel)
         history.record("ok", new_files)
-        marks = getattr(_sync_locked, "last_marks", [])
-        if background and marks:
-            # A mark coming back is worth interrupting someone for. Another
-            # lecture slide landing in a folder is not, and never was.
-            title = marks[0] if len(marks) == 1 else f"{len(marks)} new marks"
-            notify(title, "; ".join(marks[:3]))
-        elif background and new_files:
+        if background and new_files:
             notify(f"{new_files} new file{'s' if new_files != 1 else ''} "
                    "downloaded", f"Saved under {cfg.root_dir.name}.")
     except Cancelled:
@@ -810,27 +746,14 @@ def _sync_locked(cfg: Config, headful: bool,
         init_folders(cfg, units)
         print(f"Saving files to: {cfg.root_dir}")
 
-        # Grades first, so a mark that arrived this week can be written into
-        # that week's note as the notes are rebuilt below.
-        marks: dict[str, list[str]] = {}
-        if cfg.track_grades:
-            try:
-                marks = refresh_grades(cfg, sess)
-            except Exception as e:  # noqa: BLE001
-                print(f"  [grades] skipped this run - {e}")
-
         total = 0
         yt_budget = YouTubeBudget(cfg.max_youtube_per_sync)
         for unit in units:
             _check(cancel)
-            total += sync_unit(sess, cfg, manifest, unit, cancel, yt_budget,
-                               marks.get(unit.code))
+            total += sync_unit(sess, cfg, manifest, unit, cancel, yt_budget)
         # Refresh the stored session after real work, so the next run starts
         # from a session that is minutes old rather than days old.
         sess.refresh_saved_session()
     print(f"\nDone. {total} new file(s) downloaded.")
-    # Handed back out of band: the return value is the file count, and every
-    # caller of it would otherwise have to change to learn about marks.
-    _sync_locked.last_marks = [m for lines in marks.values() for m in lines]
     return total
 
