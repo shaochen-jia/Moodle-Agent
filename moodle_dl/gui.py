@@ -22,7 +22,8 @@ import customtkinter as ctk
 
 from . import __version__, history, theme as t
 from .config import Config, load_config
-from .courses import Course, fetch_courses
+from .courses import Course, fetch_courses, preselect
+from .folders import count_files
 from .main import sync
 from .session import MoodleSession
 from .setup_wizard import DEFAULT_URL, write_config
@@ -361,21 +362,13 @@ class App(ctk.CTk):
             tile.grid(row=0, column=i, padx=(0 if i == 0 else 8, 0), sticky="ew")
             _label(tile, code, size=12, color=t.TEXT_MUTED,
                    anchor="w").pack(fill="x", padx=12, pady=(10, 0))
-            n = self._count_files(cfg.root_dir / code)
+            n = count_files(cfg.root_dir / code)
             extra = (new_counts or {}).get(code, 0)
             _label(tile, f"{n} files", size=14, bold=True,
                    anchor="w").pack(fill="x", padx=12, pady=(0, 2))
             _label(tile, f"+{extra} new" if extra else " ", size=11,
                    color=t.SUCCESS if extra else t.TEXT_MUTED,
                    anchor="w").pack(fill="x", padx=12, pady=(0, 10))
-
-    @staticmethod
-    def _count_files(unit_dir: Path) -> int:
-        try:
-            return sum(1 for p in unit_dir.rglob("*")
-                       if p.is_file() and not p.name.startswith("."))
-        except OSError:
-            return 0
 
     def _show_recent_runs(self) -> None:
         """Background syncs have no console - replay their outcome here."""
@@ -720,8 +713,9 @@ class App(ctk.CTk):
         for w in self.course_frame.winfo_children():
             w.destroy()
 
+        ticked = preselect(courses, self._configured_codes())
         for i, c in enumerate(courses):
-            var = ctk.BooleanVar(value=c.starred and i < 8)
+            var = ctk.BooleanVar(value=ticked[i])
             self.course_vars.append(var)
             row = ctk.CTkFrame(self.course_frame, fg_color="transparent")
             row.pack(fill="x")
@@ -740,6 +734,14 @@ class App(ctk.CTk):
         self.finish_btn.configure(state="normal")
         self._set_status(f"{len(courses)} courses found - newest semester "
                          "first, ★ marks the ones you starred on Moodle.")
+
+    def _configured_codes(self) -> set[str]:
+        """Unit codes already in the settings file, if there are any."""
+        try:
+            cfg = load_config(self.config_path)
+        except Exception:
+            return set()
+        return {u.code.upper() for u in cfg.units}
 
     def _finish(self) -> None:
         if self.busy:

@@ -49,6 +49,15 @@ def diagnose(exc: BaseException | str) -> Problem:
              "Leave that window alone; it closes by itself when it is done."],
             details)
 
+    if "asyncio loop" in low or "sync api" in low:
+        return Problem(
+            "The app needs restarting before it can sync again.",
+            ["Close Moodle Downloader completely and open it again.",
+             "Nothing is lost - your files, settings and login all stay.",
+             "Versions before 0.6.0 could get stuck like this after one "
+             "offline sync; updating stops it happening again."],
+            details)
+
     if "executable doesn" in low or "playwright install" in low:
         return Problem(
             "The app could not find a browser to sign you in with.",

@@ -68,3 +68,22 @@ def fetch_courses(sess: MoodleSession, base_url: str,
         )
         for c in body["data"]["courses"]
     ]
+
+# How many courses to offer on a first-ever setup, before there is anything
+# configured to go on.
+FIRST_RUN_LIMIT = 8
+
+
+def preselect(courses: list, configured: set[str]) -> list[bool]:
+    """Which courses the setup screen should show as already chosen.
+
+    The saved configuration wins whenever there is one. Deciding from Moodle's
+    stars every time meant reopening this screen re-proposed every starred
+    course - including ones deliberately taken out - and pressing Finish put
+    them straight back. That is how a unit from an earlier semester kept
+    reappearing weeks after it was removed.
+    """
+    if configured:
+        return [c.unit_code.upper() in configured for c in courses]
+    return [bool(c.starred) and i < FIRST_RUN_LIMIT
+            for i, c in enumerate(courses)]

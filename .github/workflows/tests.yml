@@ -1,0 +1,30 @@
+name: tests
+
+# The suite has caught several regressions that a type checker could not, but
+# only because somebody remembered to run it. This runs it for them.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  uat:
+    # Windows, because that is where this app runs and where its filename,
+    # path-length and symlink behaviour differ from everywhere else.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Acceptance suite
+        # No network and nothing real is touched, so this needs no secrets
+        # and no Moodle account.
+        run: python tests/uat.py

@@ -87,7 +87,7 @@ are the ones the free tier serves.
 python tests/uat.py
 ```
 
-Ninety checks, no network, and it touches nothing real - `LOCALAPPDATA` is
+Ninety-eight checks, no network, and it touches nothing real - `LOCALAPPDATA` is
 redirected to a temp folder at import time, so the lock file, settings and sync
 history all land there rather than in the copy you actually use. Exits non-zero
 on failure, so a hook or CI step can gate on it.
@@ -133,6 +133,38 @@ died with a hundred lines of launch flags. `MoodleSession` now claims a
 `browser` lock for the life of the session, which turns that into a sentence.
 `__enter__` releases it by hand when it raises, because `__exit__` does not
 run in that case - N13 pins exactly that.
+
+## The dashboard has to be true
+
+Two things on it were quietly wrong, and both were the same mistake in
+different clothes: a failure handled by substituting a plausible-looking
+value instead of saying so.
+
+`count_files` globbed the unit folder inside one `try`, so the first
+unreadable path abandoned the count and returned `0`. A student's own project
+sat in one unit folder, complete with a `.venv/lib64` symlink Windows will not
+follow - and the unit with the most work in it read `0 files`. It now walks,
+counts per directory, keeps what it got, and skips `.git`, `.venv` and
+`node_modules`, which are the student's work rather than the unit's.
+
+The last-sync line read `failed: <the exception>`, which put
+`It looks like you are using Playwright Sync API` on the main screen. It goes
+through `problems.diagnose` now, like every other failure the user sees.
+
+## Choosing courses
+
+`preselect` decides which courses a setup screen offers as chosen, and lives
+in `courses.py` rather than the GUI so section O can test it. The saved
+configuration wins whenever there is one; Moodle's stars are only a first-run
+guess. Deciding from stars every time meant reopening the screen re-proposed
+every starred course - including ones deliberately removed - and pressing
+Finish wrote them back. A unit from an earlier semester reappeared on the
+dashboard for weeks because of it.
+
+The other half of that bug was a stale `config.yaml` sitting next to the exe
+from when settings lived there. `default_config_path` migrates it only when
+the real settings file is missing, so it does nothing day to day - but it held
+`course_selection: starred` and the old unit list, waiting.
 
 ## Design decisions worth keeping
 

@@ -59,4 +59,5 @@ def describe(run: dict) -> str:
         return f"{when} — waiting for you to sign in"
     if status == "cancelled":
         return f"{when} — stopped by you"
-    return f"{when} — failed: {run.get('detail', '')[:80]}"
+    from .problems import diagnose
+    return f"{when} — {diagnose(str(run.get('detail', ''))).title}"

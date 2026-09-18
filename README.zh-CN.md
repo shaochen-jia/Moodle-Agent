@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-![version](https://img.shields.io/badge/version-0.6.0-blue)
+![version](https://img.shields.io/badge/version-0.6.1-blue)
 ![platform](https://img.shields.io/badge/Windows-单文件%20免安装-success)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)

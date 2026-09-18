@@ -328,7 +328,9 @@ runs = history.load()[-3:]
 check("H3 history records outcomes",
       "3 new files" in history.describe(runs[0])
       and "sign in" in history.describe(runs[1])
-      and "failed" in history.describe(runs[2]),
+      # A failed run used to read "failed: <the exception>". It now says what
+      # went wrong instead, in the same words the app uses everywhere else.
+      and "too long" in history.describe(runs[2]),
       " | ".join(history.describe(r) for r in runs))
 check("H4 the suite wrote history to a temp dir, not the real one",
       str(TMP) in str(history._path()), str(history._path().parent))
@@ -579,6 +581,88 @@ try:
           "a leaked driver poisons every later sync in the same process")
 finally:
     _sess_mod.sync_playwright = _real_pw
+
+print("\n=== O. The dashboard telling the truth ===")
+from moodle_dl.folders import count_files  # noqa: E402
+
+# A unit folder that also holds the student's own project: a git checkout, a
+# virtualenv, and - the part that actually broke it - a symlink Windows
+# refuses to follow. rglob raised part-way through, the count was abandoned,
+# and the unit with the most work in it read "0 files" on the dashboard.
+_u = TMP / "units" / "FIT1"
+(_u / "Week 01").mkdir(parents=True)
+(_u / "Week 01" / "slides.pdf").write_bytes(b"x")
+(_u / "Week 02").mkdir()
+(_u / "Week 02" / "notes.pdf").write_bytes(b"y")
+for junk in (".git", ".venv", "node_modules"):
+    (_u / "code" / junk).mkdir(parents=True)
+    (_u / "code" / junk / "a.py").write_bytes(b"z")
+(_u / "Week 01" / ".hidden").write_bytes(b"h")
+
+check("O1 course files are counted", count_files(_u) == 2, str(count_files(_u)))
+check("O2 the student's own git checkout and venv are not",
+      count_files(_u) == 2, "a virtualenv is thousands of files nobody downloaded")
+
+_broken_dir = _u / "unreadable"
+_broken_dir.mkdir()
+_denied = {"tripped": False}
+_real_walk = os.walk
+
+
+def _walk_that_fails(top, *a, **kw):
+    """Walk normally, then fail - the shape of a folder that reads fine until
+    it reaches the one entry Windows will not follow."""
+    for root, dirs, files in _real_walk(top, *a, **kw):
+        yield root, dirs, files
+    _denied["tripped"] = True
+    raise OSError(1920, "The file cannot be accessed by the system")
+
+
+os.walk = _walk_that_fails
+try:
+    _partial = count_files(_u)
+finally:
+    os.walk = _real_walk
+check("O3 one unreadable path does not zero the whole count",
+      _denied["tripped"] and _partial > 0,
+      f"counted {_partial} before giving up, instead of reporting 0")
+
+# The dashboard's last-sync line used to read out the exception verbatim -
+# "failed: Error: It looks like you are using Playwright".
+# Reopening "Change courses" used to re-tick every starred course, whatever
+# was actually configured - so a unit removed weeks ago came back ticked, and
+# pressing Finish put it in the config again. It kept reappearing on the
+# dashboard for exactly that reason.
+from moodle_dl.courses import preselect  # noqa: E402
+
+
+class _FakeCourse:
+    def __init__(self, code, starred):
+        self._code, self.starred = code, starred
+
+    @property
+    def unit_code(self):
+        return self._code
+
+
+_courses = [_FakeCourse("FIT4005", True), _FakeCourse("FIT5163", True),
+            _FakeCourse("FIT5234", False)]
+
+check("O5 a saved selection beats Moodle's stars",
+      preselect(_courses, {"FIT5163", "FIT5234"}) == [False, True, True],
+      str(preselect(_courses, {"FIT5163", "FIT5234"})))
+check("O6 a removed unit stays removed even while starred",
+      preselect(_courses, {"FIT5163"})[0] is False,
+      "this is the one that kept coming back")
+check("O7 with nothing configured yet, stars are the best guess",
+      preselect(_courses, set()) == [True, True, False],
+      str(preselect(_courses, set())))
+
+_line = history.describe({"at": 0, "status": "error",
+                          "detail": "Error: It looks like you are using "
+                                    "Playwright Sync API inside the asyncio loop."})
+check("O4 a failed sync is described, not quoted",
+      "Playwright" not in _line and "restarting" in _line, _line)
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n==== {len(PASS)} passed, {len(FAIL)} failed ====")

@@ -171,7 +171,10 @@ def autosync_loop(config_path: Path) -> int:
                 # rather than sitting idle for the full interval.
                 interval_h = min(interval_h, 0.5)
             except Exception:
-                pass  # network hiccup etc. - try again next round
+                # Same for anything else that failed. Waiting the full three
+                # hours after a dropped connection meant one bad moment at
+                # 5am cost the whole morning's syncing.
+                interval_h = min(interval_h, 0.5)
             # spread users out a little so everyone doesn't hit Moodle
             # at the same instant
             wake = time.monotonic() + interval_h * 3600 + random.uniform(-900, 900)
